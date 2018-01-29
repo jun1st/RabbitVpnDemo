@@ -14,6 +14,7 @@ import Yaml
 class PacketTunnelProvider: NEPacketTunnelProvider {
     
     var interface: TUNInterface!
+    // Since tun2socks is not stable, this is recommended to set to false
     var enablePacketProcessing = false
     
     var proxyPort: Int!
@@ -23,33 +24,30 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     var lastPath:NWPath?
     
     var started:Bool = false
-
-	override func startTunnel(options: [String : NSObject]?, completionHandler: @escaping (Error?) -> Void) {
+    
+    override func startTunnel(options: [String : NSObject]?, completionHandler: @escaping (Error?) -> Void) {
         DDLog.removeAllLoggers()
-        DDLog.add(DDASLLogger.sharedInstance, with: DDLogLevel.info)
-        ObserverFactory.currentFactory = DebugObserverFactory()
-        NSLog("-------------")
+        // warning: setting to .Debug level might be way too verbose.
+        DDLog.add(DDASLLogger.sharedInstance, with: DDLogLevel.all)
         
-        guard let conf = (protocolConfiguration as! NETunnelProviderProtocol).providerConfiguration else{
+        // Use the build-in debug observer.
+        ObserverFactory.currentFactory = DebugObserverFactory()
+        
+        guard let conf = (protocolConfiguration as! NETunnelProviderProtocol).providerConfiguration else {
             NSLog("[ERROR] No ProtocolConfiguration Found")
             exit(EXIT_FAILURE)
         }
         
-        
         let ss_adder = conf["ss_address"] as! String
-        NSLog(ss_adder)
-        
         let ss_port = conf["ss_port"] as! Int
         let method = conf["ss_method"] as! String
-        NSLog(method)
-
         let password = conf["ss_password"] as!String
-                
+        
         // Proxy Adapter
         
         
         // SSR Httpsimple
-//        let obfuscater = ShadowsocksAdapter.ProtocolObfuscater.HTTPProtocolObfuscater.Factory(hosts:["intl.aliyun.com","cdn.aliyun.com"], customHeader:nil)
+        //        let obfuscater = ShadowsocksAdapter.ProtocolObfuscater.HTTPProtocolObfuscater.Factory(hosts:["intl.aliyun.com","cdn.aliyun.com"], customHeader:nil)
         
         
         // Origin
@@ -64,7 +62,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         case "AES256CFB":algorithm = .AES256CFB
         case "CHACHA20":algorithm = .CHACHA20
         case "SALSA20":algorithm = .SALSA20
-        case "RC4MD5":algorithm = .RC4MD5 
+        case "RC4MD5":algorithm = .RC4MD5
         default:
             fatalError("Undefined algorithm!")
         }
@@ -75,16 +73,16 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         let directAdapterFactory = DirectAdapterFactory()
         
         //Get lists from conf
-        let yaml_str = conf["ymal_conf"] as!String
+        let yaml_str = conf["ymal_conf"] as! String
         let value = try! Yaml.load(yaml_str)
         
         var UserRules:[NEKit.Rule] = []
         
         for each in (value["rule"].array! ){
             let adapter:NEKit.AdapterFactory
-            if each["adapter"].string! == "direct"{
+            if (each["adapter"].string! == "direct") {
                 adapter = directAdapterFactory
-            }else{
+            } else {
                 adapter = ssAdapterFactory
             }
             
@@ -92,20 +90,20 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             switch ruleType {
             case "domainlist":
                 var rule_array : [NEKit.DomainListRule.MatchCriterion] = []
-                for dom in each["criteria"].array!{
+                for dom in each["criteria"].array! {
                     let raw_dom = dom.string!
                     let index = raw_dom.index(raw_dom.startIndex, offsetBy: 1)
                     let index2 = raw_dom.index(raw_dom.startIndex, offsetBy: 2)
-                    let typeStr = raw_dom.substring(to: index)
-                    let url = raw_dom.substring(from: index2)
+                    let typeStr = String(raw_dom[..<index])
+                    let url = String(raw_dom[index2...])
                     
-                    if typeStr == "s"{
+                    if (typeStr == "s") {
                         rule_array.append(DomainListRule.MatchCriterion.suffix(url))
-                    }else if typeStr == "k"{
+                    } else if (typeStr == "k") {
                         rule_array.append(DomainListRule.MatchCriterion.keyword(url))
-                    }else if typeStr == "p"{
+                    } else if (typeStr == "p") {
                         rule_array.append(DomainListRule.MatchCriterion.prefix(url))
-                    }else if typeStr == "r"{
+                    } else if (typeStr == "r") {
                         // ToDo:
                         // shoud be complete
                     }
@@ -120,14 +118,14 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                 break
             }
         }
-
+        
         
         // Rules
         
         let chinaRule = CountryRule(countryCode: "CN", match: true, adapterFactory: directAdapterFactory)
         let unKnowLoc = CountryRule(countryCode: "--", match: true, adapterFactory: directAdapterFactory)
         let dnsFailRule = DNSFailRule(adapterFactory: ssAdapterFactory)
-     
+        
         let allRule = AllRule(adapterFactory: ssAdapterFactory)
         UserRules.append(contentsOf: [chinaRule,unKnowLoc,dnsFailRule,allRule])
         
@@ -135,8 +133,8 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         
         RuleManager.currentManager = manager
         proxyPort =  9090
-
-//        RawSocketFactory.TunnelProvider = self
+        
+        RawSocketFactory.TunnelProvider = self
         
         // the `tunnelRemoteAddress` is meaningless because we are not creating a tunnel.
         let networkSettings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: "8.8.8.8")
@@ -153,12 +151,13 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                 NEIPv4Route(destinationAddress: "172.16.0.0", subnetMask: "255.240.0.0"),
                 NEIPv4Route(destinationAddress: "192.168.0.0", subnetMask: "255.255.0.0"),
                 NEIPv4Route(destinationAddress: "17.0.0.0", subnetMask: "255.0.0.0"),
-
             ]
         }
         networkSettings.iPv4Settings = ipv4Settings
         
         let proxySettings = NEProxySettings()
+        //        proxySettings.autoProxyConfigurationEnabled = true
+        //        proxySettings.proxyAutoConfigurationJavaScript = "function FindProxyForURL(url, host) {return \"SOCKS 127.0.0.1:\(proxyPort)\";}"
         proxySettings.httpEnabled = true
         proxySettings.httpServer = NEProxyServer(address: "127.0.0.1", port: proxyPort)
         proxySettings.httpsEnabled = true
@@ -169,6 +168,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         proxySettings.exceptionList = ["api.smoot.apple.com","configuration.apple.com","xp.apple.com","smp-device-content.apple.com","guzzoni.apple.com","captive.apple.com","*.ess.apple.com","*.push.apple.com","*.push-apple.com.akadns.net"]
         networkSettings.proxySettings = proxySettings
         
+        // the 198.18.0.0/15 is reserved for benchmark.
         if enablePacketProcessing {
             let DNSSettings = NEDNSSettings(servers: ["198.18.0.1"])
             DNSSettings.matchDomains = [""]
@@ -184,12 +184,11 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                 return
             }
             
-            
-            if !self.started{
+            if (!self.started) {
                 self.proxyServer = GCDHTTPProxyServer(address: IPAddress(fromString: "127.0.0.1"), port: NEKit.Port(port: UInt16(self.proxyPort)))
                 try! self.proxyServer.start()
                 self.addObserver(self, forKeyPath: "defaultPath", options: .initial, context: nil)
-            }else{
+            } else {
                 self.proxyServer.stop()
                 try! self.proxyServer.start()
             }
@@ -197,8 +196,8 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             completionHandler(nil)
             
             
-            if self.enablePacketProcessing {
-                if self.started{
+            if (self.enablePacketProcessing) {
+                if (self.started) {
                     self.interface.stop()
                 }
                 
@@ -223,46 +222,44 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                 self.interface.start()
             }
             self.started = true
-
+            
         }
-        
     }
     
-
-	override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {
+    override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {
         if enablePacketProcessing {
             interface.stop()
             interface = nil
             DNSServer.currentServer = nil
         }
         
-        if(proxyServer != nil){
-            proxyServer.stop()
-            proxyServer = nil
-            RawSocketFactory.TunnelProvider = nil
-        }
+        proxyServer.stop()
+        proxyServer = nil
+        RawSocketFactory.TunnelProvider = nil
+        
         completionHandler()
         
+        //框架作者并不知道为何还会运行一会儿，这样会导致无法立即开始另一个配置，所以此处进行手动的崩溃。
         exit(EXIT_SUCCESS)
-	}
+    }
     
+    /// 监听网络状态，切换不同的网络的时候，需要重新连接vpn
     override func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey : Any]?, context: UnsafeMutableRawPointer?) {
-        if keyPath == "defaultPath" {
-            if self.defaultPath?.status == .satisfied && self.defaultPath != lastPath{
-                if(lastPath == nil){
-                    lastPath = self.defaultPath
-                }else{
+        if (keyPath == "defaultPath") {
+            if self.defaultPath?.status == .satisfied && self.defaultPath != self.lastPath {
+                if (self.lastPath == nil) {
+                    self.lastPath = self.defaultPath
+                } else {
                     NSLog("received network change notifcation")
-                    let delayTime = DispatchTime.now() + Double(Int64(1 * Double(NSEC_PER_SEC))) / Double(NSEC_PER_SEC)
-                    DispatchQueue.main.asyncAfter(deadline: delayTime) {
-                        self.startTunnel(options: nil){_ in}
+                    let xSeconds = 1.0
+                    DispatchQueue.main.asyncAfter(deadline: .now() + xSeconds) {
+                        self.startTunnel(options: nil){ _ in }
                     }
                 }
-            }else{
-                lastPath = defaultPath
+            } else {
+                self.lastPath = defaultPath
             }
         }
         
     }
-
 }
